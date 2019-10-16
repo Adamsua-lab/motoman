@@ -112,6 +112,9 @@ JointTrajectoryAction::JointTrajectoryAction() :
             &JointTrajectoryAction::watchdog, this, _1));
 
   this->robot_groups_ = robot_groups;
+  
+  is_traject_closed_ = false;
+  has_active_goal_ = false;
 
   action_server_.start();
 }
@@ -418,9 +421,17 @@ void JointTrajectoryAction::goalCB(JointTractoryActionServer::GoalHandle gh, int
         ROS_WARN("Received new goal, canceling current goal");
         abortGoal(group_number);
       }
+
+      // Check whether the trajectory has same start and end point
+      int last_point = gh.getGoal()->trajectory.points.size() - 1;
+      is_traject_closed_ = industrial_robot_client::utils::isWithinRange(
+            robot_groups_[group_number].get_joint_names(),
+            gh.getGoal()->trajectory.points[0].positions, gh.getGoal()->trajectory.joint_names,
+            gh.getGoal()->trajectory.points[last_point].positions, goal_threshold_);
+
       // Sends the trajectory along to the controller
       if (withinGoalConstraints(last_trajectory_state_map_[group_number],
-                                gh.getGoal()->trajectory, group_number))
+                                gh.getGoal()->trajectory, group_number) && !is_traject_closed_)
       {
         ROS_INFO_STREAM("Already within goal constraints, setting goal succeeded");
         gh.setAccepted();
@@ -486,6 +497,7 @@ void JointTrajectoryAction::goalCB(JointTractoryActionServer::GoalHandle gh, int
         dyn_traj.header = gh.getGoal()->trajectory.header;
         dyn_traj.joint_names = gh.getGoal()->trajectory.joint_names;
         this->pub_trajectories_[group_number].publish(dyn_traj);
+        time_start_ = ros::Time::now();
       }
     }
     else
@@ -552,6 +564,7 @@ void JointTrajectoryAction::controllerStateCB(
   if (has_active_goal_)   
   {
     controllerStateCB(msg);
+    ROS_INFO("has_active_goal_");
     return;
   }
   else if (!has_active_goal_map_[robot_id]) 
@@ -571,8 +584,17 @@ void JointTrajectoryAction::controllerStateCB(
     ROS_ERROR("Joint names from the controller don't match our joint names.");
     return;
   }
-
-  // Checking for goal constraints
+  
+  // Delay the withinCoalConstraints() check in case we have a closed trajectory to allow the hw
+  // to start moving
+  if(is_traject_closed_) {
+    double dt = (ros::Time::now() - time_start_).toSec();
+    //ROS_INFO_STREAM("dt: " << dt);
+    if (dt < DT_DELAY_) {
+      return;
+    }
+  }
+  
   // Checks that we have ended inside the goal constraints and has motion stopped
 
   ROS_DEBUG("Checking goal constraints");

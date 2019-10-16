@@ -205,7 +205,12 @@ private:
   void watchdog(const ros::TimerEvent &e);
 
   void watchdog(const ros::TimerEvent &e, int group_number);
-
+  
+  bool is_traject_closed_;
+  
+  static const double DT_DELAY_ = 0.5;
+  ros::Time time_start_;
+  
   /**
    * \brief Action server goal callback method
    *
@@ -293,4 +298,3 @@ private:
 }  // namespace industrial_robot_client
 
 #endif /* MOTOMAN_DRIVER_INDUSTRIAL_ROBOT_CLIENT_JOINT_TRAJECTORY_ACTION_H */
-
